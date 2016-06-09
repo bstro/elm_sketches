@@ -6,12 +6,16 @@ import Basics.Extra exposing (never)
 import Time
 import Window
 import Task
-
+import Math.Matrix4 exposing (..)
+import Math.Vector3 exposing (..)
 
 type alias Model = 
     { res : Maybe Window.Size
     , tick : Int 
     }
+
+
+size = 20
 
 
 model =
@@ -30,7 +34,31 @@ main =
 
 
 view : Model -> Svg Msg
-view model = Svg.text "Fuck"
+view ({res, tick} as model) =
+    case res of
+        Nothing -> Svg.text "Nothing"
+        
+        Just {width, height} ->
+            let
+                w = (toFloat width) / size
+                h = (toFloat height) / size
+                vb = "0" ++ " " ++ "0" ++ " " ++ toString w ++ " " ++ toString h
+                
+                rows = [1..size]
+                columns = [1..size]
+                
+            in
+                Svg.svg 
+                [ viewBox vb
+                , Attr.width (toString width ++ "px")
+                , Attr.height (toString height ++ "px")
+                , Attr.style "overflow: hidden; position: absolute;" 
+                ]
+                [
+                    Svg.text' [ x (toString <| w/2), y (toString <| h/2), fontSize "1", textAnchor "middle" ] [Svg.text <| toString model] 
+                ]
+                 -- elements
+    
 
 
 init = model => Task.perform never Resize Window.size
