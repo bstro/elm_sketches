@@ -6,8 +6,8 @@ import Basics.Extra exposing (never)
 import Time
 import Window
 import Task
--- import Math.Matrix4 exposing (..)
--- import Math.Vector3 exposing (..)
+import Math.Matrix4 exposing (..)
+import Math.Vector3 exposing (..)
 
 type alias Model = 
     { res : Maybe Window.Size
