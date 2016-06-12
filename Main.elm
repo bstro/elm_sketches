@@ -19,7 +19,7 @@ import Noise exposing (..)
 type alias Model = 
     { res : Maybe Window.Size
     , pos : Maybe Mouse.Position
-    , terrain : Maybe (List (Vertex, Vertex, Vertex))
+    , terrain : Maybe (List (Attribute, Attribute, Attribute))
     , tick : Int
     }
 
@@ -41,6 +41,7 @@ subscriptions model =
         ]
 
 
+model : Model
 model =
     { res = Nothing
     , pos = Nothing
@@ -49,6 +50,7 @@ model =
     }
 
 
+main : Program Never
 main =
     Html.program
         { view = view
@@ -57,10 +59,12 @@ main =
         , subscriptions = subscriptions
         }
     
-    
+
+init : (Model, Cmd Msg)
 init = model => Task.perform never Init Window.size
 
 
+update : Msg -> Model -> (Model, Cmd Msg)
 update msg ({res, tick} as model) =
     case msg of
         NoOp
@@ -95,87 +99,103 @@ update msg ({res, tick} as model) =
 (=>) = (,)
 
 
-type alias Vertex = { position : Vec3, color : Vec3 }
-type alias Varying = { vColor : Vec3 }
+rows = 3
 
- 
-triangle : (Float, Float) -> (Float, Float) -> (Float, Float) -> List (Vertex, Vertex, Vertex)
-triangle (x1, y1) (x2, y2) (x3, y3) =
-    [
-        ( Vertex (vec3 x1 y1 0) (vec3 0 0 0)
-        , Vertex (vec3 x2 y2 0) (vec3 0 0 0)
-        , Vertex (vec3 x3 y3 0) (vec3 0 0 0)
-        )
+columns = 3
+
+
+getc : Float -> Float
+getc = norm columns
+
+
+getr : Float -> Float
+getr = norm rows
+
+
+mesh : Drawable Attribute
+mesh = 
+    Triangle <| concat <| [0..rows] `andThen` \r -> [1..columns] `andThen` \c -> [
+        triangle
+            (getc <| c-1  , getr <| r+1)
+            (getc <| c    , getr <| r+1)
+            (getc <| c-1  , getr <| r  )
+            ,
+        triangle
+            (getc <| c-1  , getr <| r  )
+            (getc <| c    , getr <| r+1)
+            (getc <| c    , getr <| r)
     ]
 
 
--- n max val =
---     let
---         min = 2
---     in
---         (val - min) / (max - min) 
-
-n max unscaled =
-    let
-        maxAllowed = 1
-        minAllowed = -1
-        min = 0
-    in
-        (maxAllowed - minAllowed) * (unscaled-min) / (max-min) + minAllowed
-
-
-view ({res, tick} as model) =
+view : Model -> Html Msg
+view ({res, tick, pos} as model) =
     case res of
         Nothing ->
             Html.text "Nothing"
             
         Just {height, width} ->
-            let
-                rows =
-                    40
-                columns = 
-                    40
-                pxPerRow =
-                    (toFloat height) / rows
-                pxPerCol =
-                    (toFloat width) / columns
-                getc =
-                    n columns
-                getr = 
-                    n rows
-                mesh = 
-                    Triangle <| concat <| [0..rows] `andThen` \r -> [1..columns] `andThen` \c -> [
-                        triangle
-                            (getc <| c-1  , getr <| r+1)
-                            (getc <| c    , getr <| r+1)
-                            (getc <| c-1  , getr <| r)
-                            
-                    ] 
-                log = 
-                    Debug.log "mesh is" mesh
-                    
-            in
-                WebGL.toHtml
-                    [ Attr.width width, Attr.height height ] -- Attr.style [("position", "absolute"), ("left", "-50%")] ]
-                    [ render vertexShader fragmentShader mesh {} ]
+            case pos of
+                Nothing -> Html.text "Nothing"
+                Just {x, y} ->
+                    WebGL.toHtml
+                        [ Attr.width width, Attr.height height ] -- Attr.style [("position", "absolute"), ("left", "-50%")] ]
+                        [ render vertexShader fragmentShader mesh {rotate = rotation ((*) 0.005 <| toFloat y) ((*) 0.005 <| toFloat x) } ]
 
 
-vertexShader : Shader Vertex {} Varying
+type alias Uniform = { rotate : Mat4 }
+
+type alias Attribute = 
+    { position : Vec3
+    , color : Vec3
+    }
+
+type alias Varying =
+    { vColor : Vec3 
+    }
+
+
+rotation : Float -> Float -> Mat4
+rotation x y = makeRotate (x*y) (vec3 1 1 1) 
+
+ 
+triangle : (Float, Float) -> (Float, Float) -> (Float, Float) -> List (Attribute, Attribute, Attribute)
+triangle (x1, y1) (x2, y2) (x3, y3) =
+    [
+        ( Attribute (vec3 x1 y1 0) (vec3 0 1 1)  
+        , Attribute (vec3 x2 y2 0) (vec3 1 1 0)
+        , Attribute (vec3 x3 y3 0) (vec3 1 0 1)
+        )
+    ]
+ 
+
+norm : Float -> Float -> Float
+norm max val =
+    let
+        newMax = 1
+        newMin = -1
+        min = 0
+    in
+        (newMax - newMin) * (val-min) / (max-min) + newMin
+
+
+vertexShader : Shader Attribute Uniform Varying
 vertexShader = [glsl|
     attribute vec3 position; 
     attribute vec3 color;
+    
+    uniform mat4 rotate;
+    
     varying vec3 vColor;
     
     void main () {
-        gl_Position = vec4(position, 1.0);
+        gl_Position = rotate * vec4(position, 1.0);
         vColor = color;
     }
 |]
 
-fragmentShader : Shader {} {} Varying
+fragmentShader : Shader {} Uniform Varying
 fragmentShader = [glsl|
     precision mediump float;
-    
     varying vec3 vColor;
     
     void main () {
