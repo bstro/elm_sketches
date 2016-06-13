@@ -159,7 +159,7 @@ view ({res, tick, pos, texture} as model) =
                                 [ Attr.width width, Attr.height height ] -- Attr.style [("position", "absolute"), ("left", "-50%")] ]
                                 [ render vertexShader fragmentShader mesh uniform ]
 
-size = 12
+size = 40
 
 type alias Attribute = 
     { position : Vec3
@@ -182,7 +182,7 @@ type alias Uniform =
 
 
 rotation : Float -> Float -> Mat4
-rotation x y = makeRotate x (vec3 1 0 0)
+rotation x y = makeRotate x (vec3 1 0 1)
 
 scaling : Float -> Mat4
 scaling t = makeScale (vec3 t t t)  
@@ -236,7 +236,7 @@ vertexShader = [glsl|
             vec3
             ( n(position.x)
             , n(position.y)
-            , rand(vec2(n(position.x), n(position.y)))*4.418
+            , rand(vec2(n(position.x), n(position.y)))
 
             );
         
