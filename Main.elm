@@ -21,11 +21,14 @@ type alias Model =
     , pos : Maybe Mouse.Position
     , terrain : Maybe (List (Attribute, Attribute, Attribute))
     , tick : Int
+    , texture : Maybe Texture
     }
 
 
 type Msg
     = Resize Window.Size
+    | TexturesError Error
+    | TexturesLoaded (Maybe Texture)
     | MouseMove Mouse.Position
     | Init Window.Size
     | Tick Time.Time
@@ -47,6 +50,7 @@ model =
     , pos = Nothing
     , tick = 0
     , terrain = Nothing
+    , texture = Nothing
     }
 
 
@@ -61,8 +65,17 @@ main =
     
 
 init : (Model, Cmd Msg)
-init = model => Task.perform never Init Window.size
+init = model => 
+    Cmd.batch
+      [ Window.size |> Task.perform never Init
+      , fetchTextures |> Task.perform TexturesError TexturesLoaded
+      ]
 
+
+fetchTextures : Task.Task Error (Maybe Texture)
+fetchTextures =
+  loadTexture "./terrain3.jpg"
+    `Task.andThen` \tex -> Task.succeed (Just tex)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg ({res, tick} as model) =
@@ -70,15 +83,22 @@ update msg ({res, tick} as model) =
         NoOp
         -> model
         => Cmd.none
+
+        TexturesError err
+        -> model
+        => Cmd.none
         
+        
+        TexturesLoaded texture
+        -> { model | texture = texture }
+        => Cmd.none
+        
+
         Init ({width, height} as res)
         ->
-        let
-            (perm, newSeed) = permutationTable (initialSeed 42)
-        in 
             { model
             | res = Just res
-            , terrain = Just <| triangle (0 , 0) (1 , 1) (1 , -1) 
+            , terrain = Just <| triangle 0 0 (0 , 0) (1 , 1) (1 , -1) 
             }
         => Cmd.none
         
@@ -98,37 +118,27 @@ update msg ({res, tick} as model) =
 (=>) : a -> b -> (a, b)
 (=>) = (,)
 
+rows = 20
 
-rows = 3
-
-columns = 3
-
-
-getc : Float -> Float
-getc = norm columns
-
-
-getr : Float -> Float
-getr = norm rows
-
+columns = 20
 
 mesh : Drawable Attribute
 mesh = 
     Triangle <| concat <| [0..rows] `andThen` \r -> [1..columns] `andThen` \c -> [
-        triangle
-            (getc <| c-1  , getr <| r+1)
-            (getc <| c    , getr <| r+1)
-            (getc <| c-1  , getr <| r  )
+        triangle r c
+            (c-1  , r+1)
+            (c    , r+1)
+            (c-1  , r  )
             ,
-        triangle
-            (getc <| c-1  , getr <| r  )
-            (getc <| c    , getr <| r+1)
-            (getc <| c    , getr <| r)
+        triangle r c
+            (c-1  , r  )
+            (c    , r+1)
+            (c    , r  )
     ]
 
 
 view : Model -> Html Msg
-view ({res, tick, pos} as model) =
+view ({res, tick, pos, texture} as model) =
     case res of
         Nothing ->
             Html.text "Nothing"
@@ -137,16 +147,27 @@ view ({res, tick, pos} as model) =
             case pos of
                 Nothing -> Html.text "Nothing"
                 Just {x, y} ->
-                    WebGL.toHtml
-                        [ Attr.width width, Attr.height height ] -- Attr.style [("position", "absolute"), ("left", "-50%")] ]
-                        [ render vertexShader fragmentShader mesh {rotate = rotation ((*) 0.005 <| toFloat y) ((*) 0.005 <| toFloat x) } ]
+                    case texture of
+                        Nothing -> Html.text "Nothing"
+                        Just tex -> 
+                            let 
+                                rotate = rotation ((*) 0.005 <| toFloat y) ((*) 0.005 <| toFloat x)
+                                uniform =
+                                    { texture = tex
+                                    , rotate = rotate
+                                    , scaling = scaling 0.5
+                                    }
+                            in
+                            WebGL.toHtml
+                                [ Attr.width width, Attr.height height ] -- Attr.style [("position", "absolute"), ("left", "-50%")] ]
+                                [ render vertexShader fragmentShader mesh uniform ]
 
-
-type alias Uniform = { rotate : Mat4 }
 
 type alias Attribute = 
     { position : Vec3
     , color : Vec3
+    , row : Float
+    , col : Float
     }
 
 type alias Varying =
@@ -154,41 +175,53 @@ type alias Varying =
     }
 
 
+type alias Uniform =
+    { texture : Texture
+    , rotate : Mat4
+    , scaling : Mat4
+    }
+
+
 rotation : Float -> Float -> Mat4
-rotation x y = makeRotate (x*y) (vec3 1 1 1) 
+rotation x y = makeRotate x (vec3 0 0 1)
+
+scaling : Float -> Mat4
+scaling t = makeScale (vec3 t t t)  
 
  
-triangle : (Float, Float) -> (Float, Float) -> (Float, Float) -> List (Attribute, Attribute, Attribute)
-triangle (x1, y1) (x2, y2) (x3, y3) =
+triangle : Float -> Float -> (Float, Float) -> (Float, Float) -> (Float, Float) -> List (Attribute, Attribute, Attribute)
+triangle row col (x1, y1) (x2, y2) (x3, y3) =
     [
-        ( Attribute (vec3 x1 y1 0) (vec3 0 1 1)  
-        , Attribute (vec3 x2 y2 0) (vec3 1 1 0)
-        , Attribute (vec3 x3 y3 0) (vec3 1 0 1)
+        ( Attribute (vec3 x1 y1 0) (vec3 0 1 1) row col  
+        , Attribute (vec3 x2 y2 0) (vec3 1 1 0) row col
+        , Attribute (vec3 x3 y3 0) (vec3 1 0 1) row col
         )
     ]
- 
-
-norm : Float -> Float -> Float
-norm max val =
-    let
-        newMax = 1
-        newMin = -1
-        min = 0
-    in
-        (newMax - newMin) * (val-min) / (max-min) + newMin
 
 
 vertexShader : Shader Attribute Uniform Varying
 vertexShader = [glsl|
-    attribute vec3 position; 
+    attribute vec3 position;
     attribute vec3 color;
-    
-    uniform mat4 rotate;
-    
+    attribute float row;
+    attribute float col;
     varying vec3 vColor;
-    
-    void main () {
-        gl_Position = rotate * vec4(position, 1.0);
+    uniform mat4 rotate;
+    uniform mat4 scaling;
+    uniform sampler2D texture;
+            
+    void main () {        
+        float newMax = 1.0;
+        float newMin = -1.0;
+        float min = 0.0;
+        float max = 20.0;
+        float newX = (newMax - newMin) * (position.x-min) / (max-min) + newMin;
+        float newY = (newMax - newMin) * (position.y-min) / (max-min) + newMin;
+        float newZ = (newMax - newMin) * (position.z-min) / (max-min) + newMin;
+        vec3 newVec = vec3(newX, newY, newZ);
+        
+        gl_Position = scaling * rotate * vec4(newVec, 1.0);
+        
         vColor = color;
     }
 |]
@@ -197,6 +230,7 @@ fragmentShader : Shader {} Uniform Varying
 fragmentShader = [glsl|
     precision mediump float;
     varying vec3 vColor;
+    uniform sampler2D texture;
     
     void main () {
         gl_FragColor = vec4(vColor, 1.0);
