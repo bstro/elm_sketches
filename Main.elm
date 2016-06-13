@@ -118,13 +118,10 @@ update msg ({res, tick} as model) =
 (=>) : a -> b -> (a, b)
 (=>) = (,)
 
-rows = 20
-
-columns = 20
 
 mesh : Drawable Attribute
 mesh = 
-    Triangle <| concat <| [0..rows] `andThen` \r -> [1..columns] `andThen` \c -> [
+    Triangle <| concat <| [1..size] `andThen` \r -> [1..size] `andThen` \c -> [
         triangle r c
             (c-1  , r+1)
             (c    , r+1)
@@ -151,17 +148,18 @@ view ({res, tick, pos, texture} as model) =
                         Nothing -> Html.text "Nothing"
                         Just tex -> 
                             let 
-                                rotate = rotation ((*) 0.005 <| toFloat y) ((*) 0.005 <| toFloat x)
                                 uniform =
                                     { texture = tex
-                                    , rotate = rotate
+                                    , rotate = rotation ((*) 0.005 <| toFloat y) ((*) 0.005 <| toFloat x)
                                     , scaling = scaling 0.5
+                                    , size = size
                                     }
                             in
                             WebGL.toHtml
                                 [ Attr.width width, Attr.height height ] -- Attr.style [("position", "absolute"), ("left", "-50%")] ]
                                 [ render vertexShader fragmentShader mesh uniform ]
 
+size = 12
 
 type alias Attribute = 
     { position : Vec3
@@ -179,6 +177,7 @@ type alias Uniform =
     { texture : Texture
     , rotate : Mat4
     , scaling : Mat4
+    , size : Float
     }
 
 
@@ -205,20 +204,31 @@ vertexShader = [glsl|
     attribute vec3 color;
     attribute float row;
     attribute float col;
-    varying vec3 vColor;
+        
+    uniform float size;
     uniform mat4 rotate;
     uniform mat4 scaling;
     uniform sampler2D texture;
+    
+    varying vec3 vColor;
+    
+    float rand(vec2 co) {
+        return fract(sin(dot(co.xy, vec2(12.9898,78.233))) * 43758.5453);
+    }
             
     void main () {        
         float newMax = 1.0;
         float newMin = -1.0;
         float min = 0.0;
-        float max = 20.0;
-        float newX = (newMax - newMin) * (position.x-min) / (max-min) + newMin;
-        float newY = (newMax - newMin) * (position.y-min) / (max-min) + newMin;
-        float newZ = (newMax - newMin) * (position.z-min) / (max-min) + newMin;
-        vec3 newVec = vec3(newX, newY, newZ);
+        float max = size;
+        
+        float z = rand(vec2(position.x, position.y));
+        
+        vec3 newVec = vec3
+            ( (newMax - newMin) * (position.x-min) / (max-min) + newMin
+            , (newMax - newMin) * (position.y-min) / (max-min) + newMin
+            , z*10.0
+            );
         
         gl_Position = scaling * rotate * vec4(newVec, 1.0);
         
