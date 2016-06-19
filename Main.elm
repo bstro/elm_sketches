@@ -118,7 +118,7 @@ update msg ({res, tick} as model) =
 
 mesh : Drawable Attribute
 mesh = 
-    Triangle <| concat <| [0..size] `andThen` \r -> [1..size] `andThen` \c -> [
+    Triangle <| concat <| [0..size] `andThen` \r -> [0..size] `andThen` \c -> [
         triangle r c
             (c-1  , r+1)
             (c    , r+1)
@@ -161,7 +161,7 @@ view ({res, tick, pos, texture} as model) =
                                 [ Attr.width width, Attr.height height ] -- Attr.style [("position", "absolute"), ("left", "-50%")] ]
                                 [ render vertexShader fragmentShader mesh uniform ]
 
-size = 50
+size = 10
 
 type alias Attribute = 
     { position : Vec3
@@ -196,7 +196,7 @@ normalize max val =
         (newMax - newMin) * (val-min) / (max-min) + newMin
 
 camera : Int -> Int -> Mat4
-camera w h = makePerspective 90 (toFloat w / toFloat h) 0.01 100
+camera w h = makePerspective (toFloat w) (toFloat w / toFloat h) 0.01 100
 
 rotation : Float -> Float -> Float -> Float -> Mat4
 rotation x y w h =
