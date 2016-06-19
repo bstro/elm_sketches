@@ -1,5 +1,5 @@
 import Html exposing (Html)
-import Html.App as Html
+import Html.App as Html exposing (program)
 import Html.Attributes as Attr
 import WebGL exposing (..)
 import AnimationFrame exposing (..)
@@ -19,7 +19,6 @@ import Noise exposing (..)
 type alias Model = 
     { res : Maybe Window.Size
     , pos : Maybe Mouse.Position
-    , terrain : Maybe (List (Attribute, Attribute, Attribute))
     , tick : Int
     , texture : Maybe Texture
     }
@@ -49,19 +48,18 @@ model =
     { res = Nothing
     , pos = Nothing
     , tick = 0
-    , terrain = Nothing
     , texture = Nothing
     }
 
 
 main : Program Never
 main =
-    Html.program
-        { view = view
-        , update = update
-        , init = init
-        , subscriptions = subscriptions
-        }
+    program
+    { view = view
+    , update = update
+    , init = init
+    , subscriptions = subscriptions
+    }
     
 
 init : (Model, Cmd Msg)
@@ -98,7 +96,6 @@ update msg ({res, tick} as model) =
         ->
             { model
             | res = Just res
-            , terrain = Just <| triangle 0 0 (0 , 0) (1 , 1) (1 , -1) 
             }
         => Cmd.none
         
@@ -121,7 +118,7 @@ update msg ({res, tick} as model) =
 
 mesh : Drawable Attribute
 mesh = 
-    Triangle <| concat <| [1..size] `andThen` \r -> [1..size] `andThen` \c -> [
+    Triangle <| concat <| [0..size] `andThen` \r -> [1..size] `andThen` \c -> [
         triangle r c
             (c-1  , r+1)
             (c    , r+1)
@@ -150,16 +147,21 @@ view ({res, tick, pos, texture} as model) =
                             let 
                                 uniform =
                                     { texture = tex
-                                    , rotate = rotation ((*) 0.0005 <| toFloat y) ((*) 0.0005 <| toFloat x)
+                                    , rotate = rotation (toFloat x) (toFloat y) (toFloat width) (toFloat height)
                                     , scaling = scaling 1
                                     , size = size
+                                    , camera = camera width height
+                                    , screenWidth = toFloat width
+                                    , screenHeight = toFloat height
+                                    , mx = toFloat x
+                                    , my = toFloat y
                                     }
                             in
                             WebGL.toHtml
                                 [ Attr.width width, Attr.height height ] -- Attr.style [("position", "absolute"), ("left", "-50%")] ]
                                 [ render vertexShader fragmentShader mesh uniform ]
 
-size = 40
+size = 50
 
 type alias Attribute = 
     { position : Vec3
@@ -177,17 +179,36 @@ type alias Uniform =
     { texture : Texture
     , rotate : Mat4
     , scaling : Mat4
+    , camera : Mat4
     , size : Float
+    , screenWidth : Float
+    , screenHeight : Float
+    , mx : Float
+    , my : Float
     }
 
+normalize max val =
+    let
+        newMax = 1.0
+        newMin = -1.0
+        min = 0
+    in
+        (newMax - newMin) * (val-min) / (max-min) + newMin
 
-rotation : Float -> Float -> Mat4
-rotation x y = makeRotate x (vec3 1 0 1)
+camera : Int -> Int -> Mat4
+camera w h = makePerspective 90 (toFloat w / toFloat h) 0.01 100
+
+rotation : Float -> Float -> Float -> Float -> Mat4
+rotation x y w h =
+    let
+        nx = (normalize w x)
+        ny = (normalize h y)
+    in
+    makeRotate 1 (vec3 ny nx 1)
 
 scaling : Float -> Mat4
 scaling t = makeScale (vec3 t t t)  
 
- 
 triangle : Float -> Float -> (Float, Float) -> (Float, Float) -> (Float, Float) -> List (Attribute, Attribute, Attribute)
 triangle row col (x1, y1) (x2, y2) (x3, y3) =
     [
@@ -209,8 +230,23 @@ vertexShader = [glsl|
     uniform mat4 rotate;
     uniform mat4 scaling;
     uniform sampler2D texture;
+    uniform mat4 camera;
+    uniform float screenWidth;
+    uniform float screenHeight;
+    uniform float mx;
+    uniform float my;
     
     varying vec3 vColor;
+    
+    vec3 newVec;
+                
+    float n(float val) {
+        float newMax = 1.0;
+        float newMin = -1.0;
+        float min = 0.0;
+        float max = size;
+        return (newMax - newMin) * (val-min) / (max-min) + newMin;
+    }
     
     highp float rand(vec2 co)
     {
@@ -222,26 +258,10 @@ vertexShader = [glsl|
         return fract(sin(sn) * c);
     }
     
-    float n(float val) {
-        float newMax = 1.0;
-        float newMin = -1.0;
-        float min = 0.0;
-        float max = size;
-        
-        return (newMax - newMin) * (val-min) / (max-min) + newMin;
-    }
-            
-    void main () {                        
-        vec3 newVec =
-            vec3
-            ( n(position.x)
-            , n(position.y)
-            , rand(vec2(n(position.x), n(position.y)))
-
-            );
-        
-        gl_Position = scaling * rotate * vec4(newVec, 1);
-        
+    void main () {
+        float offset = texture2D(texture, vec2(row,col)).r;
+        newVec = vec3(sin(n(position.x)), sin(n(position.y)), sin(n(rand(vec2(position.x*mx, position.y*my))*2.0)*0.5)); 
+        gl_Position = camera * rotate * vec4(newVec, 1);    
         vColor = color;
     }
 |]
